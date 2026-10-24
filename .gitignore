@@ -1,7 +1,24 @@
 /.claude/
+
+# Dependencies and build output
 node_modules/
 dist/
+build/
 coverage/
+*.tsbuildinfo
+
+# Environment
 .env
 .env.*
 !.env.example
+
+# Logs
+logs/
+*.log
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
