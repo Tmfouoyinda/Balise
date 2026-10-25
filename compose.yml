@@ -1,0 +1,32 @@
+services:
+  mysql:
+    image: mysql:8.4.13
+    container_name: balise-mysql
+    command: ["mysqld"]
+    restart: unless-stopped
+    ports:
+      - 3310:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=secret
+    volumes:
+      - mysql-data:/var/lib/mysql
+  
+  rabbitmq:
+    image: rabbitmq:4.4.0-management
+    container_name: balise-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "15672:15672" # RabbitMQ Management UI
+      - "5672:5672"   # RabbitMQ AMQP
+    environment:
+      RABBITMQ_HOST: '%'
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: secret
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+volumes:
+  mysql-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
