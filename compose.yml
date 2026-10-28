@@ -1,32 +1,138 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: balise-api
+    ports:
+      - "127.0.0.1:3200:3000"
+    environment:
+      PORT: 3000
+      # Credentials are embedded in URLs: keep @ : / ? # out of these passwords in .env
+      DATABASE_URL: mysql://${MYSQL_USER:?define it in .env}:${MYSQL_PASSWORD:?define it in .env}@mysql:3306/${MYSQL_DATABASE:?define it in .env}
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?define it in .env}:${RABBITMQ_DEFAULT_PASS:?define it in .env}@rabbitmq:5672
+      S3_ENDPOINT: http://bucket:3900
+      S3_REGION: garage
+      S3_BUCKET: ${S3_BUCKET:-balise-dev}
+      # Printed by scripts/garage-init.sh
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      # File events do not cross a Windows bind mount: TypeScript watch has to poll
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: RecursiveDirectoryUsingDynamicPriorityPolling
+    volumes:
+      - ./api:/app/api
+      # Keeps the image's node_modules: the host one may hold Windows binaries
+      - /app/api/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      bucket:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
   mysql:
     image: mysql:8.4.13
     container_name: balise-mysql
-    command: ["mysqld"]
     restart: unless-stopped
     ports:
-      - 3310:3306
+      - "127.0.0.1:3310:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=secret
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?define it in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?define it in .env}
+      MYSQL_USER: ${MYSQL_USER:?define it in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?define it in .env}
     volumes:
       - mysql-data:/var/lib/mysql
-  
+      # Runs only when mysql-data is empty
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 forces TCP, so the check fails until init is over:
+      # the temporary init server only listens on the socket
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
   rabbitmq:
     image: rabbitmq:4.4.0-management
     container_name: balise-rabbitmq
+    # Fixed hostname: RabbitMQ stores its data under rabbit@<hostname>
+    hostname: rabbitmq
     restart: unless-stopped
     ports:
-      - "15672:15672" # RabbitMQ Management UI
-      - "5672:5672"   # RabbitMQ AMQP
+      - "127.0.0.1:15672:15672" # Management UI
+      - "127.0.0.1:5672:5672"   # AMQP
     environment:
-      RABBITMQ_HOST: '%'
-      RABBITMQ_DEFAULT_USER: root
-      RABBITMQ_DEFAULT_PASS: secret
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?define it in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?define it in .env}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  bucket:
+    image: dxflrs/garage:v2.5.0
+    container_name: balise-bucket
+    hostname: bucket
+    restart: unless-stopped
+    command: ["/garage", "server"]
+    ports:
+      - "127.0.0.1:3900:3900" # S3 API
+      - "127.0.0.1:3903:3903" # Admin API
+    volumes:
+      # garage.toml holds the secrets: copy garage.toml.example, never commit it.
+      # If it is missing, Docker creates a directory with that name instead.
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      # The image has no shell: the garage binary is the only possible check
+      test: ["CMD", "/garage", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # Optional: docker compose --profile tools up -d
+  bucket-ui:
+    # Third-party image that receives the admin token: pinned by digest
+    image: khairul169/garage-webui:1.1.0@sha256:17c793551873155065bf9a022dabcde874de808a1f26e648d4b82e168806439c
+    container_name: balise-bucket-ui
+    profiles: [tools]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3909:3909"
+    volumes:
+      # The UI reads admin_token from this file
+      - ./garage.toml:/etc/garage.toml:ro
+    environment:
+      API_BASE_URL: http://bucket:3903
+      S3_ENDPOINT_URL: http://bucket:3900
+    depends_on:
+      bucket:
+        condition: service_healthy
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    container_name: balise-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025" # Web UI
+      - "127.0.0.1:1025:1025" # SMTP
 
 volumes:
   mysql-data:
-    driver: local
   rabbitmq-data:
-    driver: local
+  garage-meta:
+  garage-data:
