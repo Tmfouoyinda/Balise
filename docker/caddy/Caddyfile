@@ -1,0 +1,12 @@
+# Dev: proxies the Vite dev server to keep HMR. Production serves the static build.
+
+http://localhost {
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy api:3000
+    }
+
+    handle {
+        reverse_proxy vite:5173
+    }
+}

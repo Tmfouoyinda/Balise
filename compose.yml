@@ -35,6 +35,19 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+  
+  caddy:
+    image: caddy:2.11.7-alpine
+    container_name: balise-caddy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:80:80"
+    volumes:
+      - ./docker/caddy:/etc/caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
 
   mysql:
     image: mysql:8.4.13
@@ -136,3 +149,5 @@ volumes:
   rabbitmq-data:
   garage-meta:
   garage-data:
+  caddy_data:
+  caddy_config:
