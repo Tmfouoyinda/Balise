@@ -35,19 +35,35 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
-  
+
+  vite:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: balise-vite
+    # No host port: the browser goes through Caddy, same origin as /api
+    environment:
+      # File events do not cross a Windows bind mount: the watcher has to poll
+      VITE_USE_POLLING: "true"
+    volumes:
+      - ./web:/app/web
+      # Keeps the image's node_modules: the host one may hold Windows binaries
+      - /app/web/node_modules
+
   caddy:
     image: caddy:2.11.7-alpine
     container_name: balise-caddy
     restart: unless-stopped
     ports:
-      - "127.0.0.1:80:80"
+      # 8080, not 80: port 80 is often taken on Windows (IIS, Laragon, XAMPP)
+      - "127.0.0.1:8080:80"
     volumes:
       - ./docker/caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - api
+      - vite
 
   mysql:
     image: mysql:8.4.13
@@ -94,6 +110,7 @@ services:
       retries: 10
       start_period: 20s
 
+  #Garage 
   bucket:
     image: dxflrs/garage:v2.5.0
     container_name: balise-bucket
@@ -151,3 +168,4 @@ volumes:
   garage-data:
   caddy_data:
   caddy_config:
+
